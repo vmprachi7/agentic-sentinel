@@ -2,7 +2,7 @@ name: Agentic GitOps Pipeline
 
 on:
   schedule:
-    - cron: '0 9 * * 1,4' # Monday and Thursday
+    - cron: '30 3 * * 0,3' # Monday and Thursday
   issue_comment:
     types: [created]
   workflow_dispatch:
