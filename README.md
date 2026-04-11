@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# agentic-content-sentinel
-=======
 # Agentic Content Sentinel 🤖📝
 
 An autonomous, "Human-in-the-Loop" technical content pipeline. This agent researches trending DevOps and Cloud Computing topics, drafts high-quality technical articles, and waits for manual approval via GitHub Issues before publishing to DEV.to.
@@ -47,4 +44,3 @@ pip install requests tavily-python langchain-groq python-dotenv
 
 # Run scout
 python scout.py
->>>>>>> 4342a8c (initial commit)
