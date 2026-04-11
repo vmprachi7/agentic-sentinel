@@ -1,0 +1,45 @@
+name: Agentic GitOps Pipeline
+
+on:
+  schedule:
+    - cron: '0 9 * * 1,4' # Monday and Thursday
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  # JOB 1: Create the Draft Issue
+  scout_and_draft:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install requests tavily-python langchain-groq
+      - name: Run Scout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python scout.py
+
+  # JOB 2: Publish when user comments "/approve"
+  approve_and_publish:
+    if: contains(github.event.comment.body, '/approve')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install requests
+      - name: Publish to DEV.to
+        env:
+          DEV_TO_API_KEY: ${{ secrets.DEV_TO_API_KEY }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: python publish.py
