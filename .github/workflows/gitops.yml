@@ -46,6 +46,9 @@ jobs:
       - name: Publish to DEV.to
         env:
           DEV_TO_API_KEY: ${{ secrets.DEV_TO_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: python publish.py
