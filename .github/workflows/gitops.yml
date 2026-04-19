@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  # JOB 1: Scout the web and create a draft GitHub Issue
+  # JOB 1: Scout the web and open a draft GitHub Issue
   scout_and_draft:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -31,7 +31,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python scout.py
 
-  # JOB 2: Publish when you comment /approve on the issue
+  # JOB 2: Publish when you comment /approve on the draft issue
   approve_and_publish:
     if: contains(github.event.comment.body, '/approve')
     runs-on: ubuntu-latest
