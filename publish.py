@@ -1,5 +1,6 @@
 import os
 import re
+import base64
 import requests
 
 # --- CREDENTIALS ---
@@ -15,7 +16,6 @@ raw_body     = os.getenv("ISSUE_BODY", "")
 ISSUE_TITLE  = os.getenv("ISSUE_TITLE", "").replace("📝 DRAFT: ", "").strip()
 ARTICLE_BODY = raw_body.split("---", 1)[-1].strip()
 
-# DEV.to max = 4 tags, Hashnode max = 5
 DEVTO_BASE_TAGS    = ["devops", "ai"]
 HASHNODE_BASE_TAGS = ["devops", "ai", "automation"]
 
@@ -50,9 +50,9 @@ HASHNODE_TAGS: <exactly 2 comma-separated lowercase tags from the same list>
 
 SEO_DESC: <one sentence, max 150 chars, specific and technical, written so an engineer searching Google would click it>
 
-MEDIUM_DRAFT: <The article ready to paste into Medium. Start with a one-sentence hook paragraph. Then write: [ARTICLE BODY FOLLOWS]. Do not add any commentary, instructions, or meta-text — just the hook line then the article.>
+MEDIUM_HOOK: <one punchy opening sentence for Medium — makes an engineer stop scrolling. Max 200 chars. No "In this article". Just the hook.>
 
-SUBSTACK_DRAFT: <2-3 sentences for a Substack Note. Hook on the problem, hint at the solution, end with "Full article →" followed by [DEVTO_LINK]. Engineer-to-engineer tone. No corporate language.>"""
+SUBSTACK_NOTE: <2 sentences max. Sentence 1: the problem hook. Sentence 2: "Full article →" followed by [DEVTO_LINK]. Engineer tone. Total must be under 300 chars.>"""
 
     raw = llm.invoke(prompt).content.strip()
 
@@ -60,20 +60,17 @@ SUBSTACK_DRAFT: <2-3 sentences for a Substack Note. Hook on the problem, hint at
         match = re.search(rf"{key}:(.*?)(?=\n[A-Z_]+:|$)", raw, re.DOTALL)
         return match.group(1).strip() if match else ""
 
-    devto_specific  = [t.strip() for t in extract("DEVTO_TAGS").split(",") if t.strip()][:2]
-    devto_tags      = list(dict.fromkeys(DEVTO_BASE_TAGS + devto_specific))[:4]
+    devto_specific = [t.strip() for t in extract("DEVTO_TAGS").split(",") if t.strip()][:2]
+    devto_tags     = list(dict.fromkeys(DEVTO_BASE_TAGS + devto_specific))[:4]
 
-    hn_specific     = [t.strip() for t in extract("HASHNODE_TAGS").split(",") if t.strip()][:2]
-    hashnode_tags   = list(dict.fromkeys(HASHNODE_BASE_TAGS + hn_specific))[:5]
+    hn_specific    = [t.strip() for t in extract("HASHNODE_TAGS").split(",") if t.strip()][:2]
+    hashnode_tags  = list(dict.fromkeys(HASHNODE_BASE_TAGS + hn_specific))[:5]
 
-    seo_desc        = extract("SEO_DESC")[:150]
+    seo_desc       = extract("SEO_DESC")[:150]
+    medium_hook    = extract("MEDIUM_HOOK")[:200]
+    substack_note  = extract("SUBSTACK_NOTE")[:300]
 
-    # Replace [ARTICLE BODY FOLLOWS] placeholder with actual article
-    medium_draft    = extract("MEDIUM_DRAFT").replace("[ARTICLE BODY FOLLOWS]", ARTICLE_BODY)
-
-    substack_draft  = extract("SUBSTACK_DRAFT")
-
-    return devto_tags, hashnode_tags, seo_desc, medium_draft, substack_draft
+    return devto_tags, hashnode_tags, seo_desc, medium_hook, substack_note
 
 
 # ─────────────────────────────────────────────
@@ -139,17 +136,96 @@ def publish_to_hashnode(title, body, tags, description, canonical_url):
 
 
 # ─────────────────────────────────────────────
-# STEP 4 — Close issue with clean drafts
+# STEP 4 — Save Medium draft as a file in the repo
+# ─────────────────────────────────────────────
+
+def save_medium_draft_to_repo(title, medium_hook, body, tags):
+    """
+    Saves the full Medium-ready article as a .md file inside drafts/medium/
+    in the repo. This avoids GitHub Issue comment character limits entirely.
+    The issue comment will link directly to this file.
+
+    File is committed directly via the GitHub Contents API — no checkout needed.
+    """
+    if not GITHUB_TOKEN or not REPO:
+        print("⚠️  Cannot save Medium draft — missing GITHUB_TOKEN or REPO.")
+        return None
+
+    # Build the full Medium article:
+    # hook paragraph + separator + original article body
+    medium_content = f"{medium_hook}\n\n---\n\n{body}"
+
+    # Slugify the title for the filename
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60]
+    filename = f"drafts/medium/{slug}.md"
+
+    # Add a small header so it's clear what the file is for
+    file_body = (
+        f"# {title}\n\n"
+        f"> Medium draft — tags to add: {', '.join(tags)}\n\n"
+        f"{medium_content}"
+    )
+
+    encoded = base64.b64encode(file_body.encode("utf-8")).decode("utf-8")
+
+    url     = f"https://api.github.com/repos/{REPO}/contents/{filename}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    # Check if the file already exists (needed to provide sha for update)
+    existing = requests.get(url, headers=headers)
+    payload  = {
+        "message": f"chore: add Medium draft for '{title}'",
+        "content": encoded,
+    }
+    if existing.status_code == 200:
+        payload["sha"] = existing.json()["sha"]
+
+    res = requests.put(url, headers=headers, json=payload)
+    if res.status_code in (200, 201):
+        file_url = f"https://github.com/{REPO}/blob/main/{filename}"
+        print(f"✅ Medium draft saved: {file_url}")
+        return file_url, filename
+    print(f"❌ Could not save Medium draft: {res.status_code} {res.text}")
+    return None, None
+
+
+# ─────────────────────────────────────────────
+# STEP 5 — Close issue with clean, short comment
 # ─────────────────────────────────────────────
 
 def close_github_issue(issue_number, devto_url, hashnode_url,
-                        medium_draft, substack_draft, devto_tags, hashnode_tags):
+                        medium_file_url, medium_filename,
+                        substack_note, devto_tags, hashnode_tags):
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
 
-    substack_ready = substack_draft.replace("[DEVTO_LINK]", devto_url or "")
+    substack_ready = substack_note.replace("[DEVTO_LINK]", devto_url or "")
+
+    # Two options for Medium cross-posting explained cleanly
+    medium_section = ""
+    if medium_file_url:
+        medium_section = (
+            f"### Medium\n\n"
+            f"**Option A — import from URL (recommended, 2 clicks):**\n"
+            f"1. Go to [medium.com/p/import](https://medium.com/p/import)\n"
+            f"2. Paste: `{devto_url}`\n"
+            f"3. Medium imports the full article and sets the canonical URL automatically\n\n"
+            f"**Option B — copy full draft from repo:**\n"
+            f"[Open Medium draft ↗]({medium_file_url})\n"
+            f"Tags to add: `{'` `'.join(devto_tags)}`\n"
+        )
+    else:
+        medium_section = (
+            f"### Medium\n\n"
+            f"**Import from URL (2 clicks):**\n"
+            f"1. Go to [medium.com/p/import](https://medium.com/p/import)\n"
+            f"2. Paste: `{devto_url}`\n"
+        )
 
     comment = f"""## ✅ Published
 
@@ -163,17 +239,11 @@ def close_github_issue(issue_number, devto_url, hashnode_url,
 
 ---
 
-## Medium draft
-
-**Tags to add:** {', '.join(devto_tags)}
-
-```
-{medium_draft}
-```
+{medium_section}
 
 ---
 
-## Substack note
+### Substack note
 
 ```
 {substack_ready}
@@ -200,8 +270,8 @@ def close_github_issue(issue_number, devto_url, hashnode_url,
 if __name__ == "__main__":
     print(f"\n📝 Publishing: {ISSUE_TITLE}\n")
 
-    print("🧠 Generating metadata and drafts...")
-    devto_tags, hashnode_tags, seo_desc, medium_draft, substack_draft = generate_metadata(
+    print("🧠 Generating metadata...")
+    devto_tags, hashnode_tags, seo_desc, medium_hook, substack_note = generate_metadata(
         ISSUE_TITLE, ARTICLE_BODY
     )
     print(f"   DEV.to tags:   {devto_tags}")
@@ -219,11 +289,17 @@ if __name__ == "__main__":
         ISSUE_TITLE, ARTICLE_BODY, hashnode_tags, seo_desc, devto_url
     )
 
+    print("💾 Saving Medium draft to repo...")
+    medium_file_url, medium_filename = save_medium_draft_to_repo(
+        ISSUE_TITLE, medium_hook, ARTICLE_BODY, devto_tags
+    )
+
     print("\n🔒 Closing issue...")
     if ISSUE_NUMBER and GITHUB_TOKEN:
         close_github_issue(
             ISSUE_NUMBER, devto_url, hashnode_url,
-            medium_draft, substack_draft, devto_tags, hashnode_tags
+            medium_file_url, medium_filename,
+            substack_note, devto_tags, hashnode_tags
         )
 
     print("\n🎉 Done.")
