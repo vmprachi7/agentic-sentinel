@@ -9,7 +9,7 @@ on:
 
 permissions:
   issues: write
-  contents: read
+  contents: write        # needed to commit Medium draft file to repo
 
 jobs:
   # JOB 1: Scout the web and open a draft GitHub Issue
