@@ -103,7 +103,7 @@ def pick_topic_area(past_topics):
         "Security for DevOps":              ["security", "devsecops", "vault", "secret"],
         "Observability and Monitoring":     ["observ", "tracing", "slo", "ebpf", "monitor"],
         "GitOps and Platform Engineering":  ["gitops", "argocd", "platform", "idp"],
-        "Production Troubleshooting":       ["outage", "post-mortem", "troubleshoot", "runbook"],
+        "Production Troubleshooting and Runbooks": ["outage", "post-mortem", "troubleshoot", "runbook"],
         "SRE Practices":                    ["sre", "chaos", "capacity", "toil"],
         "Terraform and IaC":                ["terraform", "opentofu", "iac", "drift"],
     }
